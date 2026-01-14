@@ -1,0 +1,89 @@
+# Install required libraries
+!pip install playwright python-pptx pillow
+!playwright install chromium
+
+from google.colab import files
+uploaded = files.upload()
+
+import os
+
+# Generalized directories
+HTML_INPUT_DIR = "html_slides"
+IMAGE_OUTPUT_DIR = "rendered_images"
+
+os.makedirs(HTML_INPUT_DIR, exist_ok=True)
+os.makedirs(IMAGE_OUTPUT_DIR, exist_ok=True)
+
+# Move uploaded HTML files
+for f in os.listdir():
+    if f.endswith(".html"):
+        os.rename(f, f"{HTML_INPUT_DIR}/{f}")
+
+# System dependencies for Chromium
+!apt-get update && apt-get install -y \
+    libxcomposite1 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0
+
+import asyncio
+from playwright.async_api import async_playwright
+
+# Generalized slide dimensions
+VIEWPORT_WIDTH  = 1280
+VIEWPORT_HEIGHT = 720
+
+async def render_html_to_images():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            args=["--no-sandbox"]
+        )
+        page = await browser.new_page(
+            viewport={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT}
+        )
+
+        html_files = sorted(os.listdir(HTML_INPUT_DIR))
+
+        for index, filename in enumerate(html_files, start=1):
+            file_path = os.path.abspath(f"{HTML_INPUT_DIR}/{filename}")
+            await page.goto(f"file://{file_path}")
+            await page.wait_for_timeout(1500)
+
+            output_image = f"{IMAGE_OUTPUT_DIR}/slide_{index}.png"
+            await page.screenshot(
+                path=output_image,
+                full_page=True
+            )
+
+            print(f"Rendered: {filename}")
+
+        await browser.close()
+
+await render_html_to_images()
+
+from pptx import Presentation
+from pptx.util import Inches
+
+# Generalized presentation creation
+presentation = Presentation()
+presentation.slide_width  = Inches(13.33)
+presentation.slide_height = Inches(7.35)
+
+blank_layout = presentation.slide_layouts[6]
+
+for image_file in sorted(os.listdir(IMAGE_OUTPUT_DIR)):
+    slide = presentation.slides.add_slide(blank_layout)
+    slide.shapes.add_picture(
+        f"{IMAGE_OUTPUT_DIR}/{image_file}",
+        0, 0,
+        width=presentation.slide_width,
+        height=presentation.slide_height
+    )
+
+# Generalized output name
+OUTPUT_PRESENTATION = "output_presentation.pptx"
+presentation.save(OUTPUT_PRESENTATION)
+
+OUTPUT_PRESENTATION
+
+from google.colab import files
+files.download(OUTPUT_PRESENTATION)
